@@ -67,7 +67,11 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun refreshStatus() {
-        val text = game.statusText()
+        val text = try {
+            game.statusText()
+        } catch (t: Throwable) {
+            "Ход ${if (game.side == WHITE) "белых" else "чёрных"}"
+        }
         tvStatus.text = text
         tvTurn.text = if (game.side == WHITE) "белые" else "чёрные"
         tvTurn.setTextColor(

@@ -86,6 +86,7 @@ class Game {
 
     private val knightDeltas = intArrayOf(-2, -1, -2, 1, -1, -2, -1, 2, 1, -2, 1, 2, 2, -1, 2, 1)
     private val diag = intArrayOf(-1, -1, -1, 1, 1, -1, 1, 1)
+    private val kingDeltas = intArrayOf(-1, -1, -1, 0, -1, 1, 0, -1, 0, 1, 1, -1, 1, 0, 1, 1)
     private val orth = intArrayOf(-1, 0, 1, 0, 0, -1, 0, 1)
 
     private fun pseudoMoves(sq: Int): MutableList<Move> {
@@ -148,7 +149,7 @@ class Game {
             }
 
             KING -> {
-                for (i in 0 until 8) push(r + orth[i * 2], f + orth[i * 2 + 1])
+                for (i in 0 until 8) push(r + kingDeltas[i * 2], f + kingDeltas[i * 2 + 1])
                 // castling
                 if (c == WHITE && sq == 60) {
                     if (castling and 1 != 0 && board[61] == 0 && board[62] == 0 &&
@@ -268,8 +269,8 @@ class Game {
         }
         // king
         for (i in 0 until 8) {
-            val r = r0 + orth[i * 2]
-            val f = f0 + orth[i * 2 + 1]
+            val r = r0 + kingDeltas[i * 2]
+            val f = f0 + kingDeltas[i * 2 + 1]
             if (r in 0..7 && f in 0..7) {
                 val p = board[r * 8 + f]
                 if (pieceType(p) == KING && pieceColor(p) == byColor) return true
