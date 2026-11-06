@@ -31,7 +31,7 @@ class BoardView @JvmOverloads constructor(
         set(value) {
             field = value
             selected = -1
-            moves.clear()
+            moves = emptyList()
             invalidate()
         }
 
