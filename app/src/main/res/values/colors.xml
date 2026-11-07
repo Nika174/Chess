@@ -8,6 +8,7 @@
     <color name="text_primary">#F3ECE2</color>
     <color name="text_secondary">#A79A8A</color>
     <color name="divider">#3A3128</color>
+    <color name="accent_soft">#3A3128</color>
     <color name="light_sq">#F0D9B5</color>
     <color name="dark_sq">#B58863</color>
 </resources>

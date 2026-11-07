@@ -38,13 +38,20 @@ class Game {
         private set
 
     private val history = ArrayList<Snapshot>()
+    val capturedByWhite = ArrayList<Int>()
+    val capturedByBlack = ArrayList<Int>()
+    var moveNumber = 1
+        private set
 
     private data class Snapshot(
         val board: IntArray,
         val side: Int,
         val castling: Int,
         val ep: Int,
-        val last: Move?
+        val last: Move?,
+        val capW: List<Int>,
+        val capB: List<Int>,
+        val moveNo: Int
     )
 
     init {
@@ -65,6 +72,9 @@ class Game {
         epSquare = -1
         lastMove = null
         history.clear()
+        capturedByWhite.clear()
+        capturedByBlack.clear()
+        moveNumber = 1
     }
 
     fun undo(): Boolean {
@@ -75,6 +85,11 @@ class Game {
         castling = s.castling
         epSquare = s.ep
         lastMove = s.last
+        capturedByWhite.clear()
+        capturedByWhite.addAll(s.capW)
+        capturedByBlack.clear()
+        capturedByBlack.addAll(s.capB)
+        moveNumber = s.moveNo
         return true
     }
 
@@ -315,8 +330,24 @@ class Game {
     // ---------------- making moves ----------------
 
     fun makeMove(m: Move) {
-        history.add(Snapshot(board.copyOf(), side, castling, epSquare, lastMove))
+        history.add(
+            Snapshot(
+                board.copyOf(), side, castling, epSquare, lastMove,
+                ArrayList(capturedByWhite), ArrayList(capturedByBlack), moveNumber
+            )
+        )
+        val victim = if (m.ep) {
+            val capSq = if (pieceColor(board[m.from]) == WHITE) m.to + 8 else m.to - 8
+            board[capSq]
+        } else {
+            board[m.to]
+        }
+        if (victim != 0) {
+            if (pieceColor(board[m.from]) == WHITE) capturedByWhite.add(victim)
+            else capturedByBlack.add(victim)
+        }
         doMove(m)
+        if (side == BLACK) moveNumber++
         lastMove = m
         side = 1 - side
     }
@@ -377,4 +408,42 @@ class Game {
 
     fun kingSquare(color: Int): Int =
         board.indexOfFirst { pieceType(it) == KING && pieceColor(it) == color }
+
+    /** Standard FEN — lets us reproduce an exact position for debugging. */
+    fun toFen(): String {
+        val sb = StringBuilder()
+        for (r in 0..7) {
+            var empty = 0
+            for (f in 0..7) {
+                val p = board[r * 8 + f]
+                if (p == 0) {
+                    empty++
+                    continue
+                }
+                if (empty > 0) {
+                    sb.append(empty)
+                    empty = 0
+                }
+                val ch = "pnbrqk"[pieceType(p) - 1]
+                sb.append(if (pieceColor(p) == WHITE) ch.uppercaseChar() else ch)
+            }
+            if (empty > 0) sb.append(empty)
+            if (r < 7) sb.append('/')
+        }
+        sb.append(' ').append(if (side == WHITE) 'w' else 'b')
+        var rights = ""
+        if (castling and 1 != 0) rights += "K"
+        if (castling and 2 != 0) rights += "Q"
+        if (castling and 4 != 0) rights += "k"
+        if (castling and 8 != 0) rights += "q"
+        sb.append(' ').append(if (rights.isEmpty()) "-" else rights)
+        sb.append(' ')
+        if (epSquare >= 0) {
+            sb.append(('a' + epSquare % 8)).append(8 - epSquare / 8)
+        } else {
+            sb.append('-')
+        }
+        sb.append(" 0 ").append(moveNumber)
+        return sb.toString()
+    }
 }

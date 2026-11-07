@@ -39,16 +39,25 @@
                 android:id="@+id/tvTurn"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:background="@color/surface_2"
+                android:background="@drawable/turn_chip"
+                android:gravity="center"
+                android:minWidth="78dp"
                 android:paddingStart="12dp"
                 android:paddingTop="6dp"
                 android:paddingEnd="12dp"
                 android:paddingBottom="6dp"
-                android:text="●"
+                android:text="белые"
                 android:textColor="@color/text_primary"
-                android:textSize="16sp" />
+                android:textSize="14sp" />
         </LinearLayout>
     </com.google.android.material.card.MaterialCardView>
+
+    <com.example.chess.ui.CapturedView
+        android:id="@+id/captured"
+        android:layout_width="match_parent"
+        android:layout_height="30dp"
+        android:layout_marginTop="6dp"
+        android:layout_marginBottom="4dp" />
 
     <com.example.chess.ui.BoardView
         android:id="@+id/board"
