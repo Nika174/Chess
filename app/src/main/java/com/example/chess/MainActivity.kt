@@ -228,10 +228,8 @@ class MainActivity : AppCompatActivity() {
             AlertDialog.Builder(this)
                 .setTitle(if (ok) "Связь работает" else "Связь не работает")
                 .setMessage(
-                    "хост принял: $hostAccepted
-" +
-                        "гость увидел хост: $clientSawHost
-" +
+                    "хост принял: $hostAccepted" + "\n" +
+                        "гость увидел хост: $clientSawHost" + "\n" +
                         "позиция дошла: $fenDelivered"
                 )
                 .setPositiveButton("Ок", null)
