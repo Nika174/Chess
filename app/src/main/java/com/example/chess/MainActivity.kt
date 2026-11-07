@@ -45,6 +45,8 @@ class MainActivity : AppCompatActivity() {
     private lateinit var tvStatus: TextView
     private lateinit var tvTurn: TextView
     private lateinit var tvMode: TextView
+    private lateinit var btnNet: Button
+    private lateinit var btnVideo: Button
     private var game = Game()
 
     private val handler = Handler(Looper.getMainLooper())
@@ -67,6 +69,8 @@ class MainActivity : AppCompatActivity() {
         tvStatus = findViewById(R.id.tvStatus)
         tvTurn = findViewById(R.id.tvTurn)
         tvMode = findViewById(R.id.tvMode)
+        btnNet = findViewById(R.id.btnNet)
+        btnVideo = findViewById(R.id.btnVideo)
 
         board.game = game
         captured.game = game
@@ -100,6 +104,8 @@ class MainActivity : AppCompatActivity() {
         findViewById<Button>(R.id.btnNew).setOnClickListener { confirmNewGame() }
         findViewById<Button>(R.id.btnUndo).setOnClickListener { doUndo() }
         findViewById<Button>(R.id.btnFlip).setOnClickListener { board.flipped = !board.flipped }
+        btnNet.setOnClickListener { showNetMenu() }
+        btnVideo.setOnClickListener { if (media == null) toggleVideo() else stopVideo() }
         tvTurn.setOnClickListener { showMenu() }
 
         tvStatus.setOnLongClickListener {
@@ -139,6 +145,24 @@ class MainActivity : AppCompatActivity() {
                         2 -> showMyAddress()
                     }
                 }
+            }
+            .show()
+    }
+
+    private fun showNetMenu() {
+        if (net != null) {
+            AlertDialog.Builder(this)
+                .setTitle("Сетевая игра")
+                .setItems(arrayOf("Выйти из сетевой игры", "Показать мой адрес")) { _, which ->
+                    if (which == 0) stopNet() else showMyAddress()
+                }
+                .show()
+            return
+        }
+        AlertDialog.Builder(this)
+            .setTitle("Игра по сети (Wi-Fi)")
+            .setItems(arrayOf("Создать игру — я хост (белые)", "Подключиться к игре (чёрные)")) { _, which ->
+                if (which == 0) startHost() else startGuest()
             }
             .show()
     }
@@ -446,6 +470,8 @@ class MainActivity : AppCompatActivity() {
     // ---------------- ui ----------------
 
     private fun updateMode(text: String) {
+        btnNet.text = if (net != null) "Выйти из сети" else "Игра по сети"
+        btnVideo.text = if (media != null) "Видео включено" else "Видео и звук"
         if (text.isEmpty()) {
             tvMode.visibility = View.GONE
         } else {
