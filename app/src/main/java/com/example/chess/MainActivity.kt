@@ -58,6 +58,8 @@ class MainActivity : AppCompatActivity() {
     private var peerView: ImageView? = null
     private var peerIp: String? = null
     private var synced = 0
+    private var rttMs = -1
+    private val logLines = ArrayList<String>()
 
     private val port = 8765
 
@@ -88,6 +90,7 @@ class MainActivity : AppCompatActivity() {
         board.onMove = { refreshStatus() }
         board.onMovePlayed = { m ->
             if (isHost) {
+                log("отправляю ход и позицию")
                 // belt and braces: send the move itself and the whole position
                 net?.sendMove(m.from, m.to, m.promo)
                 net?.sendFen(game.toFen())
@@ -160,8 +163,14 @@ class MainActivity : AppCompatActivity() {
         if (net != null) {
             AlertDialog.Builder(this)
                 .setTitle("Сетевая игра")
-                .setItems(arrayOf("Выйти из сетевой игры", "Показать мой адрес")) { _, which ->
-                    if (which == 0) stopNet() else showMyAddress()
+                .setItems(
+                    arrayOf("Выйти из сетевой игры", "Показать мой адрес", "Диагностика связи")
+                ) { _, which ->
+                    when (which) {
+                        0 -> stopNet()
+                        1 -> showMyAddress()
+                        else -> showLog()
+                    }
                 }
                 .show()
             return
@@ -194,6 +203,7 @@ class MainActivity : AppCompatActivity() {
 
         val host = NetBridge(handler, object : NetEvents {
             override fun onFen(fen: String) {}
+            override fun onRtt(ms: Int) {}
             override fun onPeerConnected() {
                 hostAccepted = true
             }
@@ -207,6 +217,7 @@ class MainActivity : AppCompatActivity() {
             override fun onFen(fen: String) {
                 if (fen == "TEST-FEN") fenDelivered = true
             }
+            override fun onRtt(ms: Int) {}
             override fun onPeerConnected() {
                 clientSawHost = true
             }
@@ -245,6 +256,7 @@ class MainActivity : AppCompatActivity() {
         val ip = Discovery.localIp()
         net = NetBridge(handler, events())
         net?.startHost(port, "Шахматы")
+        log("хост слушает $ip:$port")
         updateMode("Хост • $ip:$port • ждём соперника")
         AlertDialog.Builder(this)
             .setTitle("Ждём соперника")
@@ -310,6 +322,7 @@ class MainActivity : AppCompatActivity() {
         isHost = false
         mySide = -1
         net = NetBridge(handler, events())
+        log("подключаюсь к $ip:$port")
         net?.startClient(ip, port)
         updateMode("Подключаюсь к $ip…")
     }
@@ -317,6 +330,7 @@ class MainActivity : AppCompatActivity() {
     private fun events() = object : NetEvents {
         override fun onFen(fen: String) {
             if (isHost) return
+            log("получена позиция: ${fen.take(28)}…")
             val ok = try { game.setFromFen(fen) } catch (t: Throwable) { false }
             if (ok) {
                 synced++
@@ -329,11 +343,19 @@ class MainActivity : AppCompatActivity() {
                 refreshStatus()
                 showSync()
             } else {
+                log("ОШИБКА разбора: $fen")
                 toast("не удалось прочитать позицию: $fen")
             }
         }
 
+        override fun onRtt(ms: Int) {
+            rttMs = ms
+            log("пинг ${ms}мс")
+            if (net != null) showSync()
+        }
+
         override fun onPeerConnected() {
+            log("связь установлена (isHost=$isHost)")
             if (isHost) {
                 board.allowedSide = WHITE
                 net?.sendFen(game.toFen())
@@ -374,6 +396,7 @@ class MainActivity : AppCompatActivity() {
         }
 
         override fun onClosed(reason: String) {
+            log("закрыто: $reason")
             toast(reason)
             net?.close()
             net = null
@@ -395,13 +418,38 @@ class MainActivity : AppCompatActivity() {
         updateMode("")
     }
 
+    private fun log(line: String) {
+        val t = java.text.SimpleDateFormat("HH:mm:ss", java.util.Locale.getDefault())
+            .format(java.util.Date())
+        logLines.add("$t  $line")
+        if (logLines.size > 150) logLines.removeAt(0)
+    }
+
+    private fun showLog() {
+        val body = if (logLines.isEmpty()) "пока пусто" else logLines.joinToString("\n")
+        val tv = TextView(this)
+        tv.text = body
+        tv.textSize = 11f
+        tv.setTextIsSelectable(true)
+        val pad = (16 * resources.displayMetrics.density).toInt()
+        tv.setPadding(pad, pad, pad, pad)
+        val scroll = android.widget.ScrollView(this)
+        scroll.addView(tv)
+        AlertDialog.Builder(this)
+            .setTitle("Диагностика связи")
+            .setView(scroll)
+            .setPositiveButton("Закрыть", null)
+            .show()
+    }
+
     private fun showSync() {
         val side = when {
             mySide == WHITE -> "вы белые"
             mySide == BLACK -> "вы чёрные"
             else -> "сеть"
         }
-        updateMode("Сетевая игра • $side • обновлений: $synced")
+        val ping = if (rttMs >= 0) " • пинг ${rttMs}мс" else ""
+        updateMode("Сетевая игра • $side • обновлений: $synced$ping")
     }
 
     private fun showMyAddress() {

@@ -15,6 +15,7 @@ import java.net.Socket
 
 interface NetEvents {
     fun onFen(fen: String)
+    fun onRtt(ms: Int)
     fun onPeerConnected()
     fun onPeerMove(from: Int, to: Int, promo: Int)
     fun onPeerNewGame()
@@ -31,6 +32,8 @@ class NetBridge(private val handler: Handler, private val events: NetEvents) {
     @Volatile private var server: ServerSocket? = null
     @Volatile private var writer: PrintWriter? = null
     @Volatile private var running = false
+    private var pingSeq = 0
+    private var pingSentAt = 0L
 
     private fun post(block: () -> Unit) {
         handler.post { block() }
@@ -111,6 +114,14 @@ class NetBridge(private val handler: Handler, private val events: NetEvents) {
         // confirm the link so the other side does not claim "connected" too early
         send(JSONObject().put("t", "hello"))
         Thread {
+            while (running) {
+                Thread.sleep(2000)
+                pingSeq++
+                pingSentAt = System.currentTimeMillis()
+                send(JSONObject().put("t", "ping").put("n", pingSeq))
+            }
+        }.also { it.isDaemon = true }.start()
+        Thread {
             try {
                 val reader = BufferedReader(InputStreamReader(s.getInputStream()))
                 while (true) {
@@ -129,6 +140,11 @@ class NetBridge(private val handler: Handler, private val events: NetEvents) {
                         }
                         "new" -> post { events.onPeerNewGame() }
                         "hello" -> post { events.onPeerConnected() }
+                        "ping" -> send(JSONObject().put("t", "pong").put("n", obj.optInt("n")))
+                        "pong" -> {
+                            val rtt = (System.currentTimeMillis() - pingSentAt).toInt()
+                            if (rtt in 0..30000) post { events.onRtt(rtt) }
+                        }
                     }
                 }
             } catch (e: Exception) {
