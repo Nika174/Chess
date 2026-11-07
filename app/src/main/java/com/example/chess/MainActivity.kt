@@ -57,6 +57,7 @@ class MainActivity : AppCompatActivity() {
     private var media: MediaLink? = null
     private var peerView: ImageView? = null
     private var peerIp: String? = null
+    private var synced = 0
 
     private val port = 8765
 
@@ -84,9 +85,15 @@ class MainActivity : AppCompatActivity() {
                 false
             }
         }
-        board.onMove = {
-            refreshStatus()
-            if (isHost) net?.sendFen(game.toFen())
+        board.onMove = { refreshStatus() }
+        board.onMovePlayed = { m ->
+            if (isHost) {
+                // belt and braces: send the move itself and the whole position
+                net?.sendMove(m.from, m.to, m.promo)
+                net?.sendFen(game.toFen())
+                synced++
+                showSync()
+            }
         }
         board.onPromotion = { moves, apply ->
             val names = arrayOf("Ферзь", "Ладья", "Слон", "Конь")
@@ -247,7 +254,9 @@ class MainActivity : AppCompatActivity() {
     private fun events() = object : NetEvents {
         override fun onFen(fen: String) {
             if (isHost) return
-            if (game.setFromFen(fen)) {
+            val ok = try { game.setFromFen(fen) } catch (t: Throwable) { false }
+            if (ok) {
+                synced++
                 if (mySide == -1) {
                     mySide = BLACK
                     board.allowedSide = BLACK
@@ -255,7 +264,9 @@ class MainActivity : AppCompatActivity() {
                 }
                 board.clearSelection()
                 refreshStatus()
-                updateMode("Сетевая игра • вы чёрные")
+                showSync()
+            } else {
+                toast("не удалось прочитать позицию: $fen")
             }
         }
 
@@ -271,7 +282,19 @@ class MainActivity : AppCompatActivity() {
         }
 
         override fun onPeerMove(from: Int, to: Int, promo: Int) {
-            if (!isHost) return
+            if (!isHost) {
+                val legal = game.allLegalMoves().firstOrNull {
+                    it.from == from && it.to == to && (promo == 0 || it.promo == promo)
+                }
+                if (legal != null && game.side != mySide) {
+                    game.makeMove(legal)
+                    board.clearSelection()
+                    refreshStatus()
+                }
+                synced++
+                showSync()
+                return
+            }
             val legal = game.allLegalMoves().firstOrNull {
                 it.from == from && it.to == to && (promo == 0 || it.promo == promo)
             }
@@ -307,6 +330,15 @@ class MainActivity : AppCompatActivity() {
         mySide = -1
         board.allowedSide = -1
         updateMode("")
+    }
+
+    private fun showSync() {
+        val side = when {
+            mySide == WHITE -> "вы белые"
+            mySide == BLACK -> "вы чёрные"
+            else -> "сеть"
+        }
+        updateMode("Сетевая игра • $side • обновлений: $synced")
     }
 
     private fun showMyAddress() {

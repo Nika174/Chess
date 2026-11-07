@@ -73,7 +73,12 @@ class NetBridge(private val handler: Handler, private val events: NetEvents) {
                         try { s.close() } catch (e: Exception) {}
                         continue
                     }
-                    attach(s)
+                    try {
+                        attach(s)
+                    } catch (e: Exception) {
+                        try { s.close() } catch (ignored: Exception) {}
+                        continue
+                    }
                     post { events.onPeerConnected() }
                 }
             } catch (e: Exception) {
@@ -103,6 +108,8 @@ class NetBridge(private val handler: Handler, private val events: NetEvents) {
     private fun attach(s: Socket) {
         socket = s
         writer = PrintWriter(s.getOutputStream(), true)
+        // confirm the link so the other side does not claim "connected" too early
+        send(JSONObject().put("t", "hello"))
         Thread {
             try {
                 val reader = BufferedReader(InputStreamReader(s.getInputStream()))
@@ -121,6 +128,7 @@ class NetBridge(private val handler: Handler, private val events: NetEvents) {
                             if (f in 0..63 && t in 0..63) post { events.onPeerMove(f, t, p) }
                         }
                         "new" -> post { events.onPeerNewGame() }
+                        "hello" -> post { events.onPeerConnected() }
                     }
                 }
             } catch (e: Exception) {

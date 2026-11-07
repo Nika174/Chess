@@ -37,6 +37,9 @@ class BoardView @JvmOverloads constructor(
     var onPromotion: ((List<Move>, (Move) -> Unit) -> Unit)? = null
     var onMove: (() -> Unit)? = null
 
+    /** fires with the move that was just played locally */
+    var onMovePlayed: ((Move) -> Unit)? = null
+
     /** -1 = both sides may move (hot-seat); otherwise only this colour may touch pieces */
     var allowedSide = -1
 
@@ -311,6 +314,7 @@ class BoardView @JvmOverloads constructor(
         resetTouchState()
         invalidate()
         onMove?.invoke()
+        onMovePlayed?.invoke(m)
     }
 
     private fun drawCoordinates(canvas: Canvas) {
