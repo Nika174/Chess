@@ -416,6 +416,93 @@ class Game {
     fun kingSquare(color: Int): Int =
         board.indexOfFirst { pieceType(it) == KING && pieceColor(it) == color }
 
+    /** Loads a position from FEN (used to sync the guest with the host). */
+    fun setFromFen(fen: String): Boolean {
+        val parts = fen.trim().split(" ")
+        if (parts.size < 2) return false
+        val fresh = IntArray(64)
+        var i = 0
+        for (ch in parts[0]) {
+            when {
+                ch == '/' -> {}
+                ch.isDigit() -> i += ch - '0'
+                else -> {
+                    val t = when (ch.lowercaseChar()) {
+                        'p' -> PAWN
+                        'n' -> KNIGHT
+                        'b' -> BISHOP
+                        'r' -> ROOK
+                        'q' -> QUEEN
+                        'k' -> KING
+                        else -> 0
+                    }
+                    if (t == 0) return false
+                    if (i !in 0..63) return false
+                    fresh[i] = makePiece(t, if (ch.isUpperCase()) WHITE else BLACK)
+                    i++
+                }
+            }
+        }
+        if (i != 64) return false
+
+        board = fresh
+        side = if (parts[1] == "w") WHITE else BLACK
+
+        castling = 0
+        val rights = parts.getOrElse(2) { "-" }
+        if (rights.contains('K')) castling = castling or 1
+        if (rights.contains('Q')) castling = castling or 2
+        if (rights.contains('k')) castling = castling or 4
+        if (rights.contains('q')) castling = castling or 8
+
+        epSquare = -1
+        val ep = parts.getOrElse(3) { "-" }
+        if (ep.length >= 2 && ep[0] in 'a'..'h') {
+            val f = ep[0] - 'a'
+            val r = 8 - (ep[1] - '0')
+            if (r in 0..7) epSquare = r * 8 + f
+        }
+
+        lastMove = null
+        history.clear()
+        moveNumber = 1
+        recomputeCaptures()
+        version++
+        return true
+    }
+
+    /** After loading a FEN we rebuild the "captured pieces" strips by subtraction. */
+    private fun recomputeCaptures() {
+        capturedByWhite.clear()
+        capturedByBlack.clear()
+        val start = intArrayOf(ROOK, KNIGHT, BISHOP, QUEEN, KING, BISHOP, KNIGHT, ROOK)
+        val expectedPieces = HashMap<Int, Int>()
+        fun bump(type: Int, color: Int, delta: Int) {
+            val key = makePiece(type, color)
+            expectedPieces[key] = (expectedPieces[key] ?: 0) + delta
+        }
+        for (t in start) {
+            bump(t, WHITE, 1)
+            bump(t, BLACK, 1)
+        }
+        for (f in 0..7) {
+            bump(PAWN, WHITE, 1)
+            bump(PAWN, BLACK, 1)
+        }
+        for (sq in 0..63) {
+            val p = board[sq]
+            if (p == 0) continue
+            val left = expectedPieces[p] ?: 0
+            if (left > 0) expectedPieces[p] = left - 1
+        }
+        for ((piece, missing) in expectedPieces) {
+            if (missing <= 0) continue
+            val victimColor = pieceColor(piece)
+            val list = if (victimColor == BLACK) capturedByWhite else capturedByBlack
+            repeat(missing) { list.add(piece) }
+        }
+    }
+
     /** Standard FEN — lets us reproduce an exact position for debugging. */
     fun toFen(): String {
         val sb = StringBuilder()

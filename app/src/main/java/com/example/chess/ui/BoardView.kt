@@ -1,6 +1,7 @@
 package com.example.chess.ui
 
 import android.content.Context
+import android.animation.ValueAnimator
 import android.graphics.Canvas
 import android.graphics.Paint
 import android.graphics.RectF
@@ -36,6 +37,12 @@ class BoardView @JvmOverloads constructor(
     var onPromotion: ((List<Move>, (Move) -> Unit) -> Unit)? = null
     var onMove: (() -> Unit)? = null
 
+    /** -1 = both sides may move (hot-seat); otherwise only this colour may touch pieces */
+    var allowedSide = -1
+
+    /** when set and it returns true, the view does NOT apply the move locally (network guest) */
+    var interceptMove: ((Move) -> Boolean)? = null
+
     private var selected = -1
     private var moves: List<Move> = emptyList()
     private var movesVersion = -1
@@ -53,6 +60,33 @@ class BoardView @JvmOverloads constructor(
     private val stroke = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE }
     private val rect = RectF()
     private val rect2 = RectF()
+    private val textPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = 0x66000000
+        textAlign = Paint.Align.RIGHT
+    }
+    private val framePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.STROKE
+        color = 0x33FFFFFF
+    }
+
+    private var animating = false
+    private var animFrom = -1
+    private var animTo = -1
+    private var animPiece = 0
+    private var animFrac = 1f
+    private val animator = ValueAnimator.ofFloat(0f, 1f).apply {
+        duration = 150
+        addUpdateListener {
+            animFrac = it.animatedValue as Float
+            invalidate()
+        }
+        addListener(object : android.animation.AnimatorListenerAdapter() {
+            override fun onAnimationEnd(animation: android.animation.Animator) {
+                animating = false
+                invalidate()
+            }
+        })
+    }
 
     private val lightColor = 0xFFF0D9B5.toInt()
     private val darkColor = 0xFFB58863.toInt()
@@ -105,6 +139,8 @@ class BoardView @JvmOverloads constructor(
             canvas.drawRect(rect, paint)
         }
 
+        drawCoordinates(canvas)
+
         game.lastMove?.let { m ->
             paint.color = lastColor
             canvas.drawRect(squareRect(m.from, rect), paint)
@@ -134,6 +170,7 @@ class BoardView @JvmOverloads constructor(
             val p = game.pieceAt(sq)
             if (p == 0) continue
             if (dragging && sq == dragFrom) continue
+            if (animating && sq == animTo) continue
             val r = squareRect(sq, rect)
             PieceArt.draw(canvas, r.centerX(), r.centerY(), cell, p)
         }
@@ -151,6 +188,26 @@ class BoardView @JvmOverloads constructor(
             }
         }
 
+        if (animating && animPiece != 0) {
+            val a = squareRect(animFrom, rect)
+            val ax = a.centerX()
+            val ay = a.centerY()
+            val b = squareRect(animTo, rect2)
+            PieceArt.draw(
+                canvas,
+                ax + (b.centerX() - ax) * animFrac,
+                ay + (b.centerY() - ay) * animFrac,
+                cell,
+                animPiece
+            )
+        }
+
+        framePaint.strokeWidth = cell * 0.04f
+        canvas.drawRoundRect(
+            rect2.set(0f, 0f, width.toFloat(), height.toFloat()),
+            cell * 0.05f, cell * 0.05f, framePaint
+        )
+
         if (dragging && dragFrom >= 0) {
             val p = game.pieceAt(dragFrom)
             if (p != 0) {
@@ -166,6 +223,7 @@ class BoardView @JvmOverloads constructor(
     override fun onTouchEvent(event: MotionEvent): Boolean {
         when (event.actionMasked) {
             MotionEvent.ACTION_DOWN -> {
+                if (allowedSide >= 0 && game.side != allowedSide) return true
                 val sq = sqAt(event.x, event.y)
                 if (sq < 0) return false
                 dragX = event.x
@@ -240,11 +298,42 @@ class BoardView @JvmOverloads constructor(
     }
 
     private fun play(m: Move) {
+        if (interceptMove?.invoke(m) == true) return
+        val moving = game.pieceAt(m.from)
         game.makeMove(m)
+        if (moving != 0 && m.from != m.to) {
+            animFrom = m.from
+            animTo = m.to
+            animPiece = moving
+            animFrac = 0f
+            animating = true
+            animator.cancel()
+            animator.start()
+        }
         resetTouchState()
         invalidate()
         onMove?.invoke()
     }
+
+    private fun drawCoordinates(canvas: Canvas) {
+        if (cell < 42f) return
+        textPaint.textSize = cell * 0.17f
+        textPaint.textAlign = Paint.Align.RIGHT
+        for (d in 0..7) {
+            val file = if (flipped) 7 - d else d
+            val label = ('a' + file).toString()
+            textPaint.color = if ((7 + file) % 2 == 0) 0x55000000 else 0x55FFFFFF
+            canvas.drawText(label, d * cell + cell * 0.86f, 8 * cell - cell * 0.08f, textPaint)
+        }
+        textPaint.textAlign = Paint.Align.LEFT
+        for (r in 0..7) {
+            val rank = if (flipped) r + 1 else 8 - r
+            textPaint.color = if ((r + 0) % 2 == 0) 0x55000000 else 0x55FFFFFF
+            canvas.drawText(rank.toString(), d0(), r * cell + cell * 0.22f, textPaint)
+        }
+    }
+
+    private fun d0(): Float = cell * 0.08f
 
     /** legal moves of the selected piece, recomputed whenever the position changed */
     private fun currentMoves(): List<Move> {
