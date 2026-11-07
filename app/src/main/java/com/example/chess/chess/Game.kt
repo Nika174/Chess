@@ -43,6 +43,10 @@ class Game {
     var moveNumber = 1
         private set
 
+    /** bumped on every position change; lets the UI know its cached moves are stale */
+    var version = 0
+        private set
+
     private data class Snapshot(
         val board: IntArray,
         val side: Int,
@@ -75,6 +79,7 @@ class Game {
         capturedByWhite.clear()
         capturedByBlack.clear()
         moveNumber = 1
+        version++
     }
 
     fun undo(): Boolean {
@@ -90,6 +95,7 @@ class Game {
         capturedByBlack.clear()
         capturedByBlack.addAll(s.capB)
         moveNumber = s.moveNo
+        version++
         return true
     }
 
@@ -350,6 +356,7 @@ class Game {
         if (side == BLACK) moveNumber++
         lastMove = m
         side = 1 - side
+        version++
     }
 
     private fun doMove(m: Move) {

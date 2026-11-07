@@ -28,6 +28,7 @@ class BoardView @JvmOverloads constructor(
     var flipped = false
         set(value) {
             field = value
+            resetTouchState()
             invalidate()
         }
 
@@ -37,6 +38,7 @@ class BoardView @JvmOverloads constructor(
 
     private var selected = -1
     private var moves: List<Move> = emptyList()
+    private var movesVersion = -1
 
     private var dragFrom = -1
     private var dragging = false
@@ -136,7 +138,7 @@ class BoardView @JvmOverloads constructor(
             PieceArt.draw(canvas, r.centerX(), r.centerY(), cell, p)
         }
 
-        for (m in moves) {
+        for (m in currentMoves()) {
             val r = squareRect(m.to, rect2)
             if (game.pieceAt(m.to) != 0) {
                 stroke.color = moveColor
@@ -177,8 +179,9 @@ class BoardView @JvmOverloads constructor(
                     dragFrom = sq
                     selected = sq
                     moves = game.legalMovesFrom(sq)
+                    movesVersion = game.version
                     invalidate()
-                } else if (selected >= 0 && moves.any { it.to == sq }) {
+                } else if (selected >= 0 && currentMoves().any { it.to == sq }) {
                     attemptMove(sq)
                 } else {
                     selected = -1
@@ -226,7 +229,7 @@ class BoardView @JvmOverloads constructor(
 
     /** moves the selected piece to [to] if that destination is legal */
     private fun attemptMove(to: Int): Boolean {
-        val candidates = moves.filter { it.to == to }
+        val candidates = currentMoves().filter { it.to == to }
         if (candidates.isEmpty()) return false
         if (candidates.size > 1 && candidates.all { it.promo != 0 }) {
             onPromotion?.invoke(candidates) { chosen -> play(chosen) }
@@ -243,8 +246,25 @@ class BoardView @JvmOverloads constructor(
         onMove?.invoke()
     }
 
+    /** legal moves of the selected piece, recomputed whenever the position changed */
+    private fun currentMoves(): List<Move> {
+        if (selected < 0) return emptyList()
+        val p = game.pieceAt(selected)
+        if (p == 0 || pieceColor(p) != game.side) {
+            resetTouchState()
+            invalidate()
+            return emptyList()
+        }
+        if (movesVersion != game.version) {
+            moves = game.legalMovesFrom(selected)
+            movesVersion = game.version
+        }
+        return moves
+    }
+
     private fun resetTouchState() {
         selected = -1
+        movesVersion = -1
         moves = emptyList()
         dragFrom = -1
         dragging = false
