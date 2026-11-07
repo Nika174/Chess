@@ -203,10 +203,8 @@ class BoardView @JvmOverloads constructor(
         }
 
         framePaint.strokeWidth = cell * 0.04f
-        canvas.drawRoundRect(
-            rect2.set(0f, 0f, width.toFloat(), height.toFloat()),
-            cell * 0.05f, cell * 0.05f, framePaint
-        )
+        rect2.set(0f, 0f, width.toFloat(), height.toFloat())
+        canvas.drawRoundRect(rect2, cell * 0.05f, cell * 0.05f, framePaint)
 
         if (dragging && dragFrom >= 0) {
             val p = game.pieceAt(dragFrom)
