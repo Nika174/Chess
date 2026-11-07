@@ -168,10 +168,75 @@ class MainActivity : AppCompatActivity() {
         }
         AlertDialog.Builder(this)
             .setTitle("Игра по сети (Wi-Fi)")
-            .setItems(arrayOf("Создать игру — я хост (белые)", "Подключиться к игре (чёрные)")) { _, which ->
-                if (which == 0) startHost() else startGuest()
+            .setItems(
+                arrayOf(
+                    "Создать игру — я хост (белые)",
+                    "Подключиться к игре (чёрные)",
+                    "Проверить связь на этом телефоне"
+                )
+            ) { _, which ->
+                when (which) {
+                    0 -> startHost()
+                    1 -> startGuest()
+                    else -> selfTest()
+                }
             }
             .show()
+    }
+
+    /** loopback test: host + client on the same phone, proves the protocol works */
+    private fun selfTest() {
+        val testPort = 8799
+        var hostAccepted = false
+        var clientSawHost = false
+        var fenDelivered = false
+        var hostBridge: NetBridge? = null
+
+        val host = NetBridge(handler, object : NetEvents {
+            override fun onFen(fen: String) {}
+            override fun onPeerConnected() {
+                hostAccepted = true
+            }
+            override fun onPeerMove(from: Int, to: Int, promo: Int) {}
+            override fun onPeerNewGame() {}
+            override fun onClosed(reason: String) {}
+        })
+        hostBridge = host
+
+        val client = NetBridge(handler, object : NetEvents {
+            override fun onFen(fen: String) {
+                if (fen == "TEST-FEN") fenDelivered = true
+            }
+            override fun onPeerConnected() {
+                clientSawHost = true
+            }
+            override fun onPeerMove(from: Int, to: Int, promo: Int) {}
+            override fun onPeerNewGame() {}
+            override fun onClosed(reason: String) {}
+        })
+
+        host.startHost(testPort, "test")
+        handler.postDelayed({
+            hostBridge?.sendFen("TEST-FEN")
+            hostBridge?.sendMove(1, 2, 0)
+            client.startClient("127.0.0.1", testPort)
+        }, 500)
+        handler.postDelayed({
+            host.close()
+            client.close()
+            val ok = hostAccepted && clientSawHost && fenDelivered
+            AlertDialog.Builder(this)
+                .setTitle(if (ok) "Связь работает" else "Связь не работает")
+                .setMessage(
+                    "хост принял: $hostAccepted
+" +
+                        "гость увидел хост: $clientSawHost
+" +
+                        "позиция дошла: $fenDelivered"
+                )
+                .setPositiveButton("Ок", null)
+                .show()
+        }, 2500)
     }
 
     private fun startHost() {
