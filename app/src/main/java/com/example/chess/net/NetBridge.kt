@@ -32,6 +32,12 @@ class NetBridge(private val handler: Handler, private val events: NetEvents) {
     @Volatile private var server: ServerSocket? = null
     @Volatile private var writer: PrintWriter? = null
     @Volatile private var running = false
+    /** host side: answers "who is there" requests with the current position */
+    var fenProvider: (() -> String)? = null
+
+    /** guest side: also pull the position every heartbeat */
+    var requestState = false
+
     private var pingSeq = 0
     private var pingSentAt = 0L
 
@@ -119,6 +125,7 @@ class NetBridge(private val handler: Handler, private val events: NetEvents) {
                 pingSeq++
                 pingSentAt = System.currentTimeMillis()
                 send(JSONObject().put("t", "ping").put("n", pingSeq))
+                if (requestState) send(JSONObject().put("t", "want"))
             }
         }.also { it.isDaemon = true }.start()
         Thread {
@@ -141,6 +148,16 @@ class NetBridge(private val handler: Handler, private val events: NetEvents) {
                         "new" -> post { events.onPeerNewGame() }
                         "hello" -> post { events.onPeerConnected() }
                         "ping" -> send(JSONObject().put("t", "pong").put("n", obj.optInt("n")))
+                        "want" -> {
+                            val provider = fenProvider
+                            if (provider != null) {
+                                try {
+                                    sendFen(provider())
+                                } catch (e: Exception) {
+                                    // ignore, next heartbeat retries
+                                }
+                            }
+                        }
                         "pong" -> {
                             val rtt = (System.currentTimeMillis() - pingSentAt).toInt()
                             if (rtt in 0..30000) post { events.onRtt(rtt) }

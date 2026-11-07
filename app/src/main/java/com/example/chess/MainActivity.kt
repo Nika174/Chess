@@ -255,6 +255,7 @@ class MainActivity : AppCompatActivity() {
         board.allowedSide = WHITE
         val ip = Discovery.localIp()
         net = NetBridge(handler, events())
+        net?.fenProvider = { game.toFen() }
         net?.startHost(port, "Шахматы")
         log("хост слушает $ip:$port")
         updateMode("Хост • $ip:$port • ждём соперника")
@@ -323,6 +324,7 @@ class MainActivity : AppCompatActivity() {
         mySide = -1
         net = NetBridge(handler, events())
         log("подключаюсь к $ip:$port")
+        net?.requestState = true
         net?.startClient(ip, port)
         updateMode("Подключаюсь к $ip…")
     }
