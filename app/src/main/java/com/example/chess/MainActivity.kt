@@ -1,19 +1,27 @@
 package com.example.chess
 
+import android.Manifest
 import android.content.ClipData
 import android.content.ClipboardManager
+import android.content.pm.PackageManager
+import android.graphics.Bitmap
 import android.graphics.drawable.GradientDrawable
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
+import android.view.Gravity
 import android.view.View
 import android.widget.Button
 import android.widget.EditText
 import android.widget.FrameLayout
+import android.widget.ImageView
+import android.widget.LinearLayout
 import android.widget.TextView
 import android.widget.Toast
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
+import androidx.core.app.ActivityCompat
+import androidx.core.content.ContextCompat
 import com.example.chess.chess.BISHOP
 import com.example.chess.chess.BLACK
 import com.example.chess.chess.Game
@@ -22,6 +30,7 @@ import com.example.chess.chess.Move
 import com.example.chess.chess.QUEEN
 import com.example.chess.chess.ROOK
 import com.example.chess.chess.WHITE
+import com.example.chess.media.MediaLink
 import com.example.chess.net.Discovery
 import com.example.chess.net.HostInfo
 import com.example.chess.net.NetBridge
@@ -42,6 +51,10 @@ class MainActivity : AppCompatActivity() {
     private var net: NetBridge? = null
     private var isHost = false
     private var mySide = -1
+
+    private var media: MediaLink? = null
+    private var peerView: ImageView? = null
+    private var peerIp: String? = null
 
     private val port = 8765
 
@@ -104,7 +117,11 @@ class MainActivity : AppCompatActivity() {
         val items = if (net == null) {
             arrayOf("Играть вдвоём на этом телефоне", "Создать игру по Wi-Fi (хост)", "Подключиться к игре")
         } else {
-            arrayOf("Выйти из сетевой игры", "Показать мой адрес")
+            arrayOf(
+                if (media == null) "Включить видео и звук" else "Выключить видео и звук",
+                "Выйти из сетевой игры",
+                "Показать мой адрес"
+            )
         }
         AlertDialog.Builder(this)
             .setTitle("Режим игры")
@@ -117,8 +134,9 @@ class MainActivity : AppCompatActivity() {
                     }
                 } else {
                     when (which) {
-                        0 -> stopNet()
-                        1 -> showMyAddress()
+                        0 -> if (media == null) toggleVideo() else stopVideo()
+                        1 -> stopNet()
+                        2 -> showMyAddress()
                     }
                 }
             }
@@ -194,6 +212,7 @@ class MainActivity : AppCompatActivity() {
 
     private fun connectTo(ip: String) {
         stopNet()
+        peerIp = ip
         isHost = false
         mySide = -1
         net = NetBridge(handler, events())
@@ -257,6 +276,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun stopNet() {
+        stopVideo()
         net?.close()
         net = null
         isHost = false
@@ -279,6 +299,90 @@ class MainActivity : AppCompatActivity() {
         val cm = getSystemService(ClipboardManager::class.java)
         cm.setPrimaryClip(ClipData.newPlainText("addr", text))
         toast("Скопировано")
+    }
+
+    // ---------------- video call ----------------
+
+    private fun toggleVideo() {
+        val missing = ArrayList<String>()
+        if (ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA) != PackageManager.PERMISSION_GRANTED) {
+            missing.add(Manifest.permission.CAMERA)
+        }
+        if (ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
+            missing.add(Manifest.permission.RECORD_AUDIO)
+        }
+        if (missing.isNotEmpty()) {
+            ActivityCompat.requestPermissions(this, missing.toTypedArray(), 7)
+            return
+        }
+        startVideo()
+    }
+
+    override fun onRequestPermissionsResult(
+        requestCode: Int,
+        permissions: Array<out String>,
+        grantResults: IntArray
+    ) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        if (requestCode == 7) {
+            if (grantResults.isNotEmpty() && grantResults.all { it == PackageManager.PERMISSION_GRANTED }) {
+                startVideo()
+            } else {
+                toast("Без камеры и микрофона видео не работает")
+            }
+        }
+    }
+
+    private fun startVideo() {
+        if (net == null) {
+            toast("Сначала подключитесь к игре по Wi-Fi")
+            return
+        }
+        showOverlay(true)
+        val link = MediaLink(
+            handler,
+            { bmp: Bitmap -> peerView?.setImageBitmap(bmp) },
+            { reason: String ->
+                toast(reason)
+                stopVideo()
+            }
+        )
+        media = link
+        if (isHost) link.startHost() else link.startGuest(peerIp ?: return)
+        updateMode("Видеосвязь включена")
+    }
+
+    private fun stopVideo() {
+        media?.stop()
+        media = null
+        peerView?.visibility = View.GONE
+        if (net != null) updateMode("Сетевая игра")
+    }
+
+    private fun showOverlay(show: Boolean) {
+        if (!show) {
+            peerView?.visibility = View.GONE
+            return
+        }
+        var iv = peerView
+        if (iv == null) {
+            iv = ImageView(this)
+            iv.scaleType = ImageView.ScaleType.CENTER_CROP
+            iv.background = GradientDrawable().apply {
+                cornerRadius = 16f * resources.displayMetrics.density
+                setColor(0xFF161B22.toInt())
+            }
+            iv.clipToOutline = true
+            val density = resources.displayMetrics.density
+            val w = (120 * density).toInt()
+            val h = (90 * density).toInt()
+            val lp = FrameLayout.LayoutParams(w, h, Gravity.TOP or Gravity.END)
+            lp.topMargin = (10 * density).toInt()
+            lp.rightMargin = (10 * density).toInt()
+            addContentView(iv, lp)
+            peerView = iv
+        }
+        iv.visibility = View.VISIBLE
     }
 
     // ---------------- game actions ----------------
@@ -384,6 +488,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     override fun onDestroy() {
+        stopVideo()
         net?.close()
         super.onDestroy()
     }
