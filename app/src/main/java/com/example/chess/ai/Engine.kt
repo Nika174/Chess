@@ -147,14 +147,13 @@ class Engine(
 
         for (depth in 1..maxDepth()) {
             val scored = ArrayList<Pair<Move, Int>>(roots.size)
-            var alpha = -MATE
             for (m in orderMoves(work, roots)) {
                 work.makeMove(m)
-                var score = -negamax(work, depth - 1, -MATE, -alpha, 1)
+                // full window per root move: every score is exact, so a mate can never tie with a quiet move
+                var score = -negamax(work, depth - 1, -MATE, MATE, 1)
                 work.undo()
                 if (noise > 0) score += random.nextInt(-noise, noise + 1)
                 scored.add(m to score)
-                if (score > alpha) alpha = score
                 if (System.currentTimeMillis() > deadline) break
             }
             if (scored.isNotEmpty()) {
@@ -180,7 +179,7 @@ class Engine(
             g.makeMove(m)
             val score = -negamax(g, depth - 1, -beta, -a, ply + 1)
             g.undo()
-            if (score >= beta) return beta
+            if (score >= beta) return score
             if (score > a) a = score
         }
         return a
@@ -201,7 +200,7 @@ class Engine(
             g.makeMove(m)
             val score = -quiesce(g, -beta, -a, depthLeft + 1)
             g.undo()
-            if (score >= beta) return beta
+            if (score >= beta) return score
             if (score > a) a = score
         }
         return a
