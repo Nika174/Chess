@@ -12,6 +12,7 @@ import android.media.AudioRecord
 import android.media.AudioTrack
 import android.media.MediaRecorder
 import android.os.Handler
+import android.os.HandlerThread
 import android.util.Log
 import java.io.ByteArrayOutputStream
 import java.io.DataInputStream
@@ -28,7 +29,8 @@ import java.net.Socket
 class MediaLink(
     private val handler: Handler,
     private val onPeerFrame: (Bitmap) -> Unit,
-    private val onClosed: (String) -> Unit
+    private val onClosed: (String) -> Unit,
+    private val log: (String) -> Unit = {}
 ) {
 
     companion object {
@@ -47,6 +49,8 @@ class MediaLink(
     @Volatile private var out: DataOutputStream? = null
     private var server: ServerSocket? = null
     private var camera: Camera? = null
+    private var camThread: HandlerThread? = null
+    private var frameSeen = false
     private var audioRecord: AudioRecord? = null
     private var track: AudioTrack? = null
 
@@ -130,7 +134,15 @@ class MediaLink(
                     when (type) {
                         TYPE_VIDEO -> {
                             val bmp = BitmapFactory.decodeByteArray(data, 0, len)
-                            if (bmp != null) handler.post { onPeerFrame(bmp) }
+                            if (bmp != null) {
+                                if (!frameSeen) {
+                                    frameSeen = true
+                                    log("получен первый кадр")
+                                }
+                                handler.post { onPeerFrame(bmp) }
+                            } else {
+                                log("кадр не декодировался")
+                            }
                         }
                         TYPE_AUDIO -> {
                             try {
@@ -168,52 +180,62 @@ class MediaLink(
     // ---------------- camera ----------------
 
     private fun startCamera() {
-        try {
-            val info = Camera.CameraInfo()
-            var index = -1
-            for (i in 0 until Camera.getNumberOfCameras()) {
-                Camera.getCameraInfo(i, info)
-                if (info.facing == Camera.CameraInfo.CAMERA_FACING_FRONT) {
-                    index = i
-                    break
+        val thread = HandlerThread("chess-cam")
+        thread.start()
+        camThread = thread
+        Handler(thread.looper).post {
+            try {
+                val info = Camera.CameraInfo()
+                var index = -1
+                for (i in 0 until Camera.getNumberOfCameras()) {
+                    Camera.getCameraInfo(i, info)
+                    if (info.facing == Camera.CameraInfo.CAMERA_FACING_FRONT) {
+                        index = i
+                        break
+                    }
                 }
-            }
-            val cam = if (index >= 0) Camera.open(index) else Camera.open()
-            camera = cam
-            val params = cam.parameters
-            val supported = params.supportedPreviewSizes
-            val wanted = supported
-                .filter { it.width <= 480 && it.height <= 360 }
-                .maxByOrNull { it.width * it.height }
-                ?: supported.minByOrNull { it.width * it.height }
-            if (wanted != null) params.setPreviewSize(wanted.width, wanted.height)
-            params.previewFormat = ImageFormat.NV21
-            cam.parameters = params
+                val cam = if (index >= 0) Camera.open(index) else Camera.open()
+                camera = cam
 
-            // headless preview surface: frames arrive through the callback
-            cam.setPreviewTexture(android.graphics.SurfaceTexture(10))
-            cam.startPreview()
+                val params = cam.parameters
+                val supported = params.supportedPreviewSizes
+                val wanted = supported
+                    .filter { it.width <= 480 && it.height <= 360 }
+                    .maxByOrNull { it.width * it.height }
+                    ?: supported.minByOrNull { it.width * it.height }
+                if (wanted != null) params.setPreviewSize(wanted.width, wanted.height)
+                params.previewFormat = ImageFormat.NV21
+                cam.parameters = params
 
-            var lastSent = 0L
-            val buffer = ByteArrayOutputStream(64 * 1024)
-            cam.setPreviewCallback { data, _ ->
-                val now = System.currentTimeMillis()
-                if (!running || now - lastSent < FRAME_INTERVAL_MS) return@setPreviewCallback
-                lastSent = now
                 try {
-                    val p = cam.parameters
-                    val w = p.previewSize.width
-                    val h = p.previewSize.height
-                    buffer.reset()
-                    val yuv = YuvImage(data, ImageFormat.NV21, w, h, null)
-                    yuv.compressToJpeg(Rect(0, 0, w, h), 45, buffer)
-                    send(TYPE_VIDEO, buffer.toByteArray())
+                    cam.setPreviewTexture(android.graphics.SurfaceTexture(0))
                 } catch (e: Exception) {
-                    Log.w(TAG, "frame: ${e.message}")
+                    log("камера: нет текстуры предпросмотра (${e.message})")
                 }
+                cam.startPreview()
+                log("камера запущена")
+
+                var lastSent = 0L
+                val buffer = ByteArrayOutputStream(64 * 1024)
+                cam.setPreviewCallback { data, _ ->
+                    val now = System.currentTimeMillis()
+                    if (!running || now - lastSent < FRAME_INTERVAL_MS) return@setPreviewCallback
+                    lastSent = now
+                    try {
+                        val p = cam.parameters
+                        val w = p.previewSize.width
+                        val h = p.previewSize.height
+                        buffer.reset()
+                        val yuv = YuvImage(data, ImageFormat.NV21, w, h, null)
+                        yuv.compressToJpeg(Rect(0, 0, w, h), 45, buffer)
+                        send(TYPE_VIDEO, buffer.toByteArray())
+                    } catch (e: Exception) {
+                        log("кадр: ${e.message}")
+                    }
+                }
+            } catch (e: Exception) {
+                log("камера не открылась: ${e.message}")
             }
-        } catch (e: Exception) {
-            Log.w(TAG, "camera: ${e.message}")
         }
     }
 
@@ -253,7 +275,7 @@ class MediaLink(
                 SAMPLE_RATE, AudioFormat.CHANNEL_OUT_MONO, AudioFormat.ENCODING_PCM_16BIT
             )
             val t = AudioTrack(
-                AudioManager.STREAM_VOICE_CALL,
+                AudioManager.STREAM_MUSIC,
                 SAMPLE_RATE,
                 AudioFormat.CHANNEL_OUT_MONO,
                 AudioFormat.ENCODING_PCM_16BIT,
@@ -277,6 +299,9 @@ class MediaLink(
         try { camera?.stopPreview() } catch (e: Exception) {}
         try { camera?.release() } catch (e: Exception) {}
         camera = null
+        try { camThread?.quitSafely() } catch (e: Exception) {}
+        camThread = null
+        frameSeen = false
         try { audioRecord?.stop() } catch (e: Exception) {}
         try { audioRecord?.release() } catch (e: Exception) {}
         audioRecord = null

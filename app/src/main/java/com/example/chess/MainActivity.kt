@@ -590,7 +590,8 @@ class MainActivity : AppCompatActivity() {
         { reason: String ->
             toast(reason)
             stopVideo()
-        }
+        },
+        { line -> log("видео: $line") }
     )
 
     /** host keeps the video port open for the whole session, so order of taps never matters */
