@@ -32,13 +32,11 @@ jobs:
       - name: Accept Android SDK licenses
         run: |
           yes | /usr/local/lib/android/sdk/cmdline-tools/latest/bin/sdkmanager --licenses
-      - name: Generate Gradle wrapper
-        run: /opt/gradle-8.9/bin/gradle wrapper
       - name: Run unit tests
-        run: ./gradlew testDebugUnitTest --no-daemon
+        run: /opt/gradle-8.9/bin/gradle testDebugUnitTest --no-daemon
 
       - name: Build APK
-        run: ./gradlew assembleDebug
+        run: /opt/gradle-8.9/bin/gradle assembleDebug
       - name: Verify signing certificate
         run: |
           $ANDROID_HOME/build-tools/34.0.0/apksigner verify --print-certs \
