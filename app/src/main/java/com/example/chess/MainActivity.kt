@@ -56,6 +56,7 @@ class MainActivity : AppCompatActivity() {
     private var mySide = -1
 
     private var media: MediaLink? = null
+    private var videoOn = false
     private var peerView: ImageView? = null
     private var peerIp: String? = null
     private var synced = 0
@@ -82,25 +83,15 @@ class MainActivity : AppCompatActivity() {
         board.game = game
         captured.game = game
 
-        // guest asks the host to validate every move instead of applying it locally
-        board.interceptMove = { m ->
-            if (net != null && !isHost) {
-                net?.sendMove(m.from, m.to, m.promo)
-                true
-            } else {
-                false
-            }
-        }
         board.onMove = {
             refreshStatus()
             maybeAiMove()
         }
         board.onMovePlayed = { m ->
-            if (isHost) {
-                log("отправляю ход и позицию")
-                // belt and braces: send the move itself and the whole position
+            if (net != null) {
                 net?.sendMove(m.from, m.to, m.promo)
-                net?.sendFen(game.toFen())
+                if (isHost) net?.sendFen(game.toFen())
+                log("отправлен ход ${m.from}-${m.to}")
                 synced++
                 showSync()
             }
@@ -122,7 +113,7 @@ class MainActivity : AppCompatActivity() {
         findViewById<Button>(R.id.btnUndo).setOnClickListener { doUndo() }
         findViewById<Button>(R.id.btnFlip).setOnClickListener { board.flipped = !board.flipped }
         btnNet.setOnClickListener { showModeMenu() }
-        btnVideo.setOnClickListener { if (media == null) toggleVideo() else stopVideo() }
+        btnVideo.setOnClickListener { if (!videoOn) toggleVideo() else stopVideo() }
         tvTurn.setOnClickListener { showMenu() }
 
         tvStatus.setOnLongClickListener {
@@ -141,7 +132,7 @@ class MainActivity : AppCompatActivity() {
             arrayOf("Играть вдвоём на этом телефоне", "Создать игру по Wi-Fi (хост)", "Подключиться к игре")
         } else {
             arrayOf(
-                if (media == null) "Включить видео и звук" else "Выключить видео и звук",
+                if (!videoOn) "Включить видео и звук" else "Выключить видео и звук",
                 "Выйти из сетевой игры",
                 "Показать мой адрес"
             )
@@ -157,7 +148,7 @@ class MainActivity : AppCompatActivity() {
                     }
                 } else {
                     when (which) {
-                        0 -> if (media == null) toggleVideo() else stopVideo()
+                        0 -> if (!videoOn) toggleVideo() else stopVideo()
                         1 -> stopNet()
                         2 -> showMyAddress()
                     }
@@ -339,6 +330,7 @@ class MainActivity : AppCompatActivity() {
         net?.fenProvider = { game.toFen() }
         net?.startHost(port, "Шахматы")
         log("хост слушает $ip:$port")
+        prepareMediaForHost()
         updateMode("Хост • $ip:$port • ждём соперника")
         AlertDialog.Builder(this)
             .setTitle("Ждём соперника")
@@ -585,30 +577,51 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    private fun newMediaLink(): MediaLink = MediaLink(
+        handler,
+        { bmp: Bitmap -> peerView?.setImageBitmap(bmp) },
+        { reason: String ->
+            toast(reason)
+            stopVideo()
+        }
+    )
+
+    /** host keeps the video port open for the whole session, so order of taps never matters */
+    private fun prepareMediaForHost() {
+        if (media == null) {
+            val link = newMediaLink()
+            media = link
+            link.startHost()
+            log("видео-порт открыт")
+        }
+    }
+
     private fun startVideo() {
         if (net == null) {
             toast("Сначала подключитесь к игре по Wi-Fi")
             return
         }
+        if (media == null) {
+            val link = newMediaLink()
+            media = link
+            if (isHost) link.startHost() else link.startGuest(peerIp ?: return)
+            log(if (isHost) "видео: слушаю" else "видео: подключаюсь к $peerIp")
+        }
         showOverlay(true)
-        val link = MediaLink(
-            handler,
-            { bmp: Bitmap -> peerView?.setImageBitmap(bmp) },
-            { reason: String ->
-                toast(reason)
-                stopVideo()
-            }
-        )
-        media = link
-        if (isHost) link.startHost() else link.startGuest(peerIp ?: return)
-        updateMode("Видеосвязь включена")
+        media?.enable()
+        videoOn = true
+        updateMode("Видео включено")
     }
 
     private fun stopVideo() {
         media?.stop()
         media = null
+        videoOn = false
         peerView?.visibility = View.GONE
-        if (net != null) updateMode("Сетевая игра")
+        if (net != null) {
+            updateMode("Сетевая игра")
+            if (isHost) prepareMediaForHost()
+        }
     }
 
     private fun showOverlay(show: Boolean) {
@@ -715,7 +728,7 @@ class MainActivity : AppCompatActivity() {
             aiLevel > 0 -> "Сложность: ${Engine.LEVEL_NAMES[aiLevel - 1]}"
             else -> "Режим игры"
         }
-        btnVideo.text = if (media != null) "Видео включено" else "Видео и звук"
+        btnVideo.text = if (videoOn) "Видео включено" else "Видео и звук"
         if (text.isEmpty()) {
             tvMode.visibility = View.GONE
         } else {

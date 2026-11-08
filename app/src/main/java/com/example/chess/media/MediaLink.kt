@@ -41,6 +41,8 @@ class MediaLink(
     }
 
     @Volatile private var running = false
+    @Volatile private var enabled = false
+    private var capturing = false
     @Volatile private var socket: Socket? = null
     @Volatile private var out: DataOutputStream? = null
     private var server: ServerSocket? = null
@@ -89,14 +91,26 @@ class MediaLink(
         handler.post { onClosed(message) }
     }
 
+    /** start sending our camera and mic; safe to call before the peer connects */
+    fun enable() {
+        enabled = true
+        if (socket != null) startCapture()
+    }
+
+    private fun startCapture() {
+        if (capturing) return
+        capturing = true
+        startCamera()
+        startMic()
+        startPlayback()
+    }
+
     private fun attach(s: Socket) {
         s.tcpNoDelay = true
         socket = s
         out = DataOutputStream(s.getOutputStream())
         startReceiver(s)
-        startCamera()
-        startMic()
-        startPlayback()
+        if (enabled) startCapture()
     }
 
     // ---------------- receive ----------------
@@ -255,6 +269,8 @@ class MediaLink(
 
     fun stop() {
         running = false
+        enabled = false
+        capturing = false
         try { camera?.setPreviewCallback(null) } catch (e: Exception) {}
         try { camera?.stopPreview() } catch (e: Exception) {}
         try { camera?.release() } catch (e: Exception) {}
