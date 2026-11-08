@@ -465,7 +465,7 @@ class Game {
 
         lastMove = null
         history.clear()
-        moveNumber = 1
+        moveNumber = parts.getOrNull(5)?.toIntOrNull() ?: 1
         recomputeCaptures()
         version++
         return true
