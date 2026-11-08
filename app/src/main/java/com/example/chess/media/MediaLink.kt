@@ -94,7 +94,9 @@ class MediaLink(
     /** start sending our camera and mic; safe to call before the peer connects */
     fun enable() {
         enabled = true
-        if (socket != null) startCapture()
+        if (socket != null) {
+            Thread { startCapture() }.also { it.isDaemon = true }.start()
+        }
     }
 
     private fun startCapture() {
@@ -110,7 +112,7 @@ class MediaLink(
         socket = s
         out = DataOutputStream(s.getOutputStream())
         startReceiver(s)
-        if (enabled) startCapture()
+        if (enabled) Thread { startCapture() }.also { it.isDaemon = true }.start()
     }
 
     // ---------------- receive ----------------

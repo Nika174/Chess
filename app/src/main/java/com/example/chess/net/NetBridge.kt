@@ -2,7 +2,9 @@ package com.example.chess.net
 
 import java.io.BufferedReader
 import java.io.InputStreamReader
-import java.io.PrintWriter
+import java.io.OutputStream
+import java.util.concurrent.LinkedBlockingQueue
+import java.util.concurrent.TimeUnit
 import java.net.DatagramPacket
 import java.net.DatagramSocket
 import java.net.InetAddress
@@ -31,7 +33,8 @@ class NetBridge(
 
     @Volatile private var socket: Socket? = null
     @Volatile private var server: ServerSocket? = null
-    @Volatile private var writer: PrintWriter? = null
+    private val outQueue = LinkedBlockingQueue<String>(512)
+    @Volatile private var writerThread: Thread? = null
     @Volatile private var running = false
     /** host side: answers "who is there" requests with the current position */
     var fenProvider: (() -> String)? = null
@@ -122,7 +125,7 @@ class NetBridge(
 
     private fun attach(s: Socket) {
         socket = s
-        writer = PrintWriter(s.getOutputStream(), true)
+        startWriter(s.getOutputStream())
         // confirm the link so the other side does not claim "connected" too early
         sendLine("hello")
         Thread {
@@ -174,9 +177,41 @@ class NetBridge(
         }.also { it.isDaemon = true; it.start() }
     }
 
+    /**
+     * Writes happen on a dedicated thread: never from the UI thread (Android can throw
+     * NetworkOnMainThreadException there, and PrintWriter would swallow it silently),
+     * and any IOException is reported instead of disappearing.
+     */
+    private fun startWriter(out: OutputStream) {
+        val thread = Thread {
+            try {
+                while (running) {
+                    val line = outQueue.poll(500, TimeUnit.MILLISECONDS) ?: continue
+                    out.write((line + "\n").toByteArray(Charsets.UTF_8))
+                    out.flush()
+                }
+            } catch (e: Exception) {
+                if (running) fail("канал записи: ${e.message ?: "разорван"}")
+            }
+        }
+        thread.isDaemon = true
+        thread.start()
+        writerThread = thread
+    }
+
+    private fun fail(reason: String) {
+        if (!running) return
+        running = false
+        post { events.onClosed(reason) }
+    }
+
     private fun sendLine(line: String) {
-        val w = writer ?: return
-        try { w.println(line) } catch (e: Exception) {}
+        if (!running) return
+        if (!outQueue.offer(line)) {
+            // keep the newest commands when the peer stalls
+            outQueue.poll()
+            outQueue.offer(line)
+        }
     }
 
     fun sendFen(fen: String) = sendLine("fen|$fen")
@@ -189,11 +224,12 @@ class NetBridge(
 
     fun close() {
         running = false
-        try { writer?.close() } catch (e: Exception) {}
+        try { writerThread?.interrupt() } catch (e: Exception) {}
         try { socket?.close() } catch (e: Exception) {}
         try { server?.close() } catch (e: Exception) {}
         socket = null
-        writer = null
+        writerThread = null
+        outQueue.clear()
         server = null
     }
 }
