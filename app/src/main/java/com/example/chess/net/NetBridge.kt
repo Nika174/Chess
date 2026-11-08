@@ -1,7 +1,5 @@
 package com.example.chess.net
 
-import android.os.Handler
-import org.json.JSONObject
 import java.io.BufferedReader
 import java.io.InputStreamReader
 import java.io.PrintWriter
@@ -26,7 +24,10 @@ interface NetEvents {
  * LAN chess link. The host owns the board; the guest only sends move intents,
  * so the position can never diverge (host re-broadcasts FEN after every move).
  */
-class NetBridge(private val handler: Handler, private val events: NetEvents) {
+class NetBridge(
+    private val post: ((() -> Unit) -> Unit),
+    private val events: NetEvents
+) {
 
     @Volatile private var socket: Socket? = null
     @Volatile private var server: ServerSocket? = null
@@ -41,9 +42,7 @@ class NetBridge(private val handler: Handler, private val events: NetEvents) {
     private var pingSeq = 0
     private var pingSentAt = 0L
 
-    private fun post(block: () -> Unit) {
-        handler.post { block() }
-    }
+
 
     // ---------------- host ----------------
 
@@ -118,14 +117,14 @@ class NetBridge(private val handler: Handler, private val events: NetEvents) {
         socket = s
         writer = PrintWriter(s.getOutputStream(), true)
         // confirm the link so the other side does not claim "connected" too early
-        send(JSONObject().put("t", "hello"))
+        sendLine("hello")
         Thread {
             while (running) {
                 Thread.sleep(2000)
                 pingSeq++
                 pingSentAt = System.currentTimeMillis()
-                send(JSONObject().put("t", "ping").put("n", pingSeq))
-                if (requestState) send(JSONObject().put("t", "want"))
+                sendLine("ping|$pingSeq")
+                if (requestState) sendLine("want")
             }
         }.also { it.isDaemon = true }.start()
         Thread {
@@ -133,29 +132,25 @@ class NetBridge(private val handler: Handler, private val events: NetEvents) {
                 val reader = BufferedReader(InputStreamReader(s.getInputStream()))
                 while (true) {
                     val line = reader.readLine() ?: break
-                    val obj = try { JSONObject(line) } catch (e: Exception) { continue }
-                    when (obj.optString("t")) {
+                    val parts = line.split("|")
+                    when (parts[0]) {
                         "fen" -> {
-                            val fen = obj.optString("fen")
+                            val fen = parts.getOrNull(1) ?: ""
                             if (fen.isNotEmpty()) post { events.onFen(fen) }
                         }
                         "move" -> {
-                            val f = obj.optInt("from", -1)
-                            val t = obj.optInt("to", -1)
-                            val p = obj.optInt("promo", 0)
+                            val f = parts.getOrNull(1)?.toIntOrNull() ?: -1
+                            val t = parts.getOrNull(2)?.toIntOrNull() ?: -1
+                            val p = parts.getOrNull(3)?.toIntOrNull() ?: 0
                             if (f in 0..63 && t in 0..63) post { events.onPeerMove(f, t, p) }
                         }
-                        "new" -> post { events.onPeerNewGame() }
                         "hello" -> post { events.onPeerConnected() }
-                        "ping" -> send(JSONObject().put("t", "pong").put("n", obj.optInt("n")))
+                        "new" -> post { events.onPeerNewGame() }
+                        "ping" -> sendLine("pong|${parts.getOrNull(1) ?: "0"}")
                         "want" -> {
                             val provider = fenProvider
                             if (provider != null) {
-                                try {
-                                    sendFen(provider())
-                                } catch (e: Exception) {
-                                    // ignore, next heartbeat retries
-                                }
+                                try { sendFen(provider()) } catch (e: Exception) {}
                             }
                         }
                         "pong" -> {
@@ -172,17 +167,16 @@ class NetBridge(private val handler: Handler, private val events: NetEvents) {
         }.also { it.isDaemon = true; it.start() }
     }
 
-    private fun send(obj: JSONObject) {
+    private fun sendLine(line: String) {
         val w = writer ?: return
-        try { w.println(obj.toString()) } catch (e: Exception) {}
+        try { w.println(line) } catch (e: Exception) {}
     }
 
-    fun sendFen(fen: String) = send(JSONObject().put("t", "fen").put("fen", fen))
+    fun sendFen(fen: String) = sendLine("fen|$fen")
 
-    fun sendMove(from: Int, to: Int, promo: Int) =
-        send(JSONObject().put("t", "move").put("from", from).put("to", to).put("promo", promo))
+    fun sendMove(from: Int, to: Int, promo: Int) = sendLine("move|$from|$to|$promo")
 
-    fun sendNewGame() = send(JSONObject().put("t", "new"))
+    fun sendNewGame() = sendLine("new")
 
     fun hasPeer(): Boolean = socket != null
 

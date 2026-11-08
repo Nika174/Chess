@@ -34,7 +34,10 @@ jobs:
           yes | /usr/local/lib/android/sdk/cmdline-tools/latest/bin/sdkmanager --licenses
       - name: Generate Gradle wrapper
         run: /opt/gradle-8.9/bin/gradle wrapper
-      - name: Build with Gradle
+      - name: Run unit tests
+        run: ./gradlew testDebugUnitTest --no-daemon
+
+      - name: Build APK
         run: ./gradlew assembleDebug
       - name: Upload APK
         uses: actions/upload-artifact@v4

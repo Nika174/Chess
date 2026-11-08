@@ -201,7 +201,7 @@ class MainActivity : AppCompatActivity() {
         var fenDelivered = false
         var hostBridge: NetBridge? = null
 
-        val host = NetBridge(handler, object : NetEvents {
+        val host = NetBridge({ work -> handler.post(work) }, object : NetEvents {
             override fun onFen(fen: String) {}
             override fun onRtt(ms: Int) {}
             override fun onPeerConnected() {
@@ -213,7 +213,7 @@ class MainActivity : AppCompatActivity() {
         })
         hostBridge = host
 
-        val client = NetBridge(handler, object : NetEvents {
+        val client = NetBridge({ work -> handler.post(work) }, object : NetEvents {
             override fun onFen(fen: String) {
                 if (fen == "TEST-FEN") fenDelivered = true
             }
@@ -254,7 +254,7 @@ class MainActivity : AppCompatActivity() {
         mySide = WHITE
         board.allowedSide = WHITE
         val ip = Discovery.localIp()
-        net = NetBridge(handler, events())
+        net = NetBridge({ work -> handler.post(work) }, events())
         net?.fenProvider = { game.toFen() }
         net?.startHost(port, "Шахматы")
         log("хост слушает $ip:$port")
@@ -322,7 +322,7 @@ class MainActivity : AppCompatActivity() {
         peerIp = ip
         isHost = false
         mySide = -1
-        net = NetBridge(handler, events())
+        net = NetBridge({ work -> handler.post(work) }, events())
         log("подключаюсь к $ip:$port")
         net?.requestState = true
         net?.startClient(ip, port)
