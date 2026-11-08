@@ -444,6 +444,7 @@ class MainActivity : AppCompatActivity() {
         }
 
         override fun onPeerMove(from: Int, to: Int, promo: Int) {
+            log("получен ход $from-$to, мой ход=${game.side == mySide}")
             if (!isHost) {
                 val legal = game.allLegalMoves().firstOrNull {
                     it.from == from && it.to == to && (promo == 0 || it.promo == promo)
@@ -460,9 +461,15 @@ class MainActivity : AppCompatActivity() {
             val legal = game.allLegalMoves().firstOrNull {
                 it.from == from && it.to == to && (promo == 0 || it.promo == promo)
             }
-            if (legal != null && game.side != mySide) {
+            if (legal == null) {
+                log("ход отклонён: нелегальный")
+            } else if (game.side == mySide) {
+                log("ход отклонён: не его очередь")
+            } else {
                 game.makeMove(legal)
+                board.clearSelection()
                 refreshStatus()
+                log("ход применён")
             }
             // always resync: cheapest way to keep both boards identical
             net?.sendFen(game.toFen())
