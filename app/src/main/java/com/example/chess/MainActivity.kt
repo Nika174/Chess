@@ -22,6 +22,7 @@ import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
+import com.example.chess.ai.Engine
 import com.example.chess.chess.BISHOP
 import com.example.chess.chess.BLACK
 import com.example.chess.chess.Game
@@ -58,6 +59,9 @@ class MainActivity : AppCompatActivity() {
     private var peerView: ImageView? = null
     private var peerIp: String? = null
     private var synced = 0
+    private var aiLevel = 0
+    private var aiThinking = false
+    private val aiSide = BLACK
     private var rttMs = -1
     private val logLines = ArrayList<String>()
 
@@ -87,7 +91,10 @@ class MainActivity : AppCompatActivity() {
                 false
             }
         }
-        board.onMove = { refreshStatus() }
+        board.onMove = {
+            refreshStatus()
+            maybeAiMove()
+        }
         board.onMovePlayed = { m ->
             if (isHost) {
                 log("отправляю ход и позицию")
@@ -114,7 +121,7 @@ class MainActivity : AppCompatActivity() {
         findViewById<Button>(R.id.btnNew).setOnClickListener { confirmNewGame() }
         findViewById<Button>(R.id.btnUndo).setOnClickListener { doUndo() }
         findViewById<Button>(R.id.btnFlip).setOnClickListener { board.flipped = !board.flipped }
-        btnNet.setOnClickListener { showNetMenu() }
+        btnNet.setOnClickListener { showModeMenu() }
         btnVideo.setOnClickListener { if (media == null) toggleVideo() else stopVideo() }
         tvTurn.setOnClickListener { showMenu() }
 
@@ -157,6 +164,78 @@ class MainActivity : AppCompatActivity() {
                 }
             }
             .show()
+    }
+
+    private fun showModeMenu() {
+        val aiLabel = if (aiLevel > 0) {
+            "Против компьютера: ${Engine.LEVEL_NAMES[aiLevel - 1]}"
+        } else {
+            "Против компьютера"
+        }
+        AlertDialog.Builder(this)
+            .setTitle("Режим игры")
+            .setItems(arrayOf("Вдвоём на одном телефоне", aiLabel, "Игра по Wi-Fi", "Проверить связь")) { _, which ->
+                when (which) {
+                    0 -> setLocalMode()
+                    1 -> chooseAiLevel()
+                    2 -> showNetMenu()
+                    else -> selfTest()
+                }
+            }
+            .show()
+    }
+
+    private fun setLocalMode() {
+        aiLevel = 0
+        stopNet()
+        board.allowedSide = -1
+        updateMode("")
+        refreshStatus()
+    }
+
+    private fun chooseAiLevel() {
+        AlertDialog.Builder(this)
+            .setTitle("Уровень сложности")
+            .setItems(Engine.LEVEL_NAMES) { _, which ->
+                aiLevel = which + 1
+                stopNet()
+                board.allowedSide = WHITE
+                updateMode("Против компьютера • ${Engine.LEVEL_NAMES[which]}")
+                refreshStatus()
+                maybeAiMove()
+            }
+            .setNegativeButton("Отмена", null)
+            .show()
+    }
+
+    /** lets the engine answer when it is its turn; never blocks the UI thread */
+    private fun maybeAiMove() {
+        if (aiLevel <= 0 || net != null || aiThinking) return
+        if (game.side != aiSide || game.gameOver()) return
+        aiThinking = true
+        tvStatus.text = "Компьютер думает…"
+
+        val fen = game.toFen()
+        val level = aiLevel
+        Thread {
+            val probe = Game()
+            probe.setFromFen(fen)
+            val move = try {
+                Engine(level).chooseMove(probe)
+            } catch (t: Throwable) {
+                null
+            }
+            handler.post {
+                aiThinking = false
+                if (move != null && game.side == aiSide) {
+                    val legal = game.allLegalMoves().firstOrNull {
+                        it.from == move.from && it.to == move.to && it.promo == move.promo
+                    }
+                    if (legal != null) board.playExternal(legal)
+                }
+                refreshStatus()
+            }
+        }.also { it.isDaemon = true }.start()
     }
 
     private fun showNetMenu() {
@@ -250,6 +329,8 @@ class MainActivity : AppCompatActivity() {
 
     private fun startHost() {
         stopNet()
+        aiLevel = 0
+        aiThinking = false
         isHost = true
         mySide = WHITE
         board.allowedSide = WHITE
@@ -272,6 +353,8 @@ class MainActivity : AppCompatActivity() {
 
     private fun startGuest() {
         stopNet()
+        aiLevel = 0
+        aiThinking = false
         isHost = false
         mySide = -1
         updateMode("Ищу игру в сети…")
@@ -560,7 +643,9 @@ class MainActivity : AppCompatActivity() {
         game = Game()
         board.game = game
         captured.game = game
+        aiThinking = false
         refreshStatus()
+        maybeAiMove()
     }
 
     private fun confirmNewGame() {
@@ -589,6 +674,16 @@ class MainActivity : AppCompatActivity() {
             toast("Отменяет хост")
             return
         }
+        if (aiLevel > 0 && !aiThinking) {
+            if (!game.undo()) {
+                toast("Ходов ещё не было")
+                return
+            }
+            if (game.side == aiSide) game.undo()
+            board.clearSelection()
+            refreshStatus()
+            return
+        }
         if (game.undo()) {
             board.clearSelection()
             refreshStatus()
@@ -615,7 +710,11 @@ class MainActivity : AppCompatActivity() {
     // ---------------- ui ----------------
 
     private fun updateMode(text: String) {
-        btnNet.text = if (net != null) "Выйти из сети" else "Игра по сети"
+        btnNet.text = when {
+            net != null -> "Выйти из сети"
+            aiLevel > 0 -> "Сложность: ${Engine.LEVEL_NAMES[aiLevel - 1]}"
+            else -> "Режим игры"
+        }
         btnVideo.text = if (media != null) "Видео включено" else "Видео и звук"
         if (text.isEmpty()) {
             tvMode.visibility = View.GONE

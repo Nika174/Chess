@@ -300,6 +300,13 @@ class BoardView @JvmOverloads constructor(
 
     private fun play(m: Move) {
         if (interceptMove?.invoke(m) == true) return
+        playExternal(m)
+        onMove?.invoke()
+        onMovePlayed?.invoke(m)
+    }
+
+    /** applies a move produced elsewhere (engine or network) with the same animation */
+    fun playExternal(m: Move) {
         val moving = game.pieceAt(m.from)
         game.makeMove(m)
         if (moving != 0 && m.from != m.to) {
@@ -313,8 +320,6 @@ class BoardView @JvmOverloads constructor(
         }
         resetTouchState()
         invalidate()
-        onMove?.invoke()
-        onMovePlayed?.invoke(m)
     }
 
     private fun drawCoordinates(canvas: Canvas) {
