@@ -111,6 +111,6 @@ class GameTest {
         assertEquals(before + 1, g.capturedByWhite.size)
         g.undo()
         assertEquals(before, g.capturedByWhite.size)
-        assertEquals(52, g.kingSquare(WHITE).let { if (it == 60) 60 else 60 })
+        assertEquals(60, g.kingSquare(WHITE))
     }
 }
