@@ -100,14 +100,21 @@ class NetBridge(
     fun startClient(host: String, port: Int) {
         running = true
         Thread {
-            try {
-                val s = Socket()
-                s.connect(InetSocketAddress(host, port), 5000)
-                attach(s)
-                post { events.onPeerConnected() }
-            } catch (e: Exception) {
-                post { events.onClosed("не удалось подключиться: ${e.message ?: host}") }
+            var lastError: String? = null
+            for (attempt in 1..8) {
+                if (!running) return@Thread
+                try {
+                    val s = Socket()
+                    s.connect(InetSocketAddress(host, port), 4000)
+                    attach(s)
+                    post { events.onPeerConnected() }
+                    return@Thread
+                } catch (e: Exception) {
+                    lastError = e.message
+                    try { Thread.sleep(500) } catch (ignored: InterruptedException) {}
+                }
             }
+            post { events.onClosed("не удалось подключиться: ${lastError ?: host}") }
         }.also { it.isDaemon = true; it.start() }
     }
 
