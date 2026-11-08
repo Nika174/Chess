@@ -106,9 +106,11 @@ class GameTest {
         // white king takes the black queen
         val take = g.allLegalMoves().firstOrNull { it.from == 60 && it.to == 52 }
         assertNotNull(take)
+        val before = g.capturedByWhite.size
         g.makeMove(take!!)
-        assertEquals(1, g.capturedByWhite.size)
+        assertEquals(before + 1, g.capturedByWhite.size)
         g.undo()
-        assertEquals(0, g.capturedByWhite.size)
+        assertEquals(before, g.capturedByWhite.size)
+        assertEquals(52, g.kingSquare(WHITE).let { if (it == 60) 60 else 60 })
     }
 }
